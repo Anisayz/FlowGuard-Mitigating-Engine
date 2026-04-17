@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import select, update, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import func
 from src.db.models import Alert, Rule
 
 
@@ -75,7 +75,7 @@ async def get_alert_by_id(db: AsyncSession, alert_id: int) -> Optional[Alert]:
 
 
 async def count_alerts(db: AsyncSession) -> int:
-    from sqlalchemy import func
+   
     result = await db.execute(select(func.count()).select_from(Alert))
     return result.scalar_one()
 
@@ -163,7 +163,7 @@ async def deactivate_rule(
 
 
 async def count_active_rules(db: AsyncSession) -> int:
-    from sqlalchemy import func
+    
     result = await db.execute(
         select(func.count())
         .select_from(Rule)
