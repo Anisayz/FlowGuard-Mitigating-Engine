@@ -17,6 +17,7 @@ What happens at shutdown:
 """
 
 import logging
+import secrets
 import sys
 from contextlib import asynccontextmanager
 
@@ -90,15 +91,14 @@ async def check_api_key(request: Request, call_next):
     """
     Validate X-API-Key header on all requests except /health and /docs.
     """
-    skip_paths = {"/health", "/docs", "/openapi.json", "/redoc"}
-    if request.url.path in skip_paths:
+    skip_prefixes = ("/health", "/docs", "/openapi.json", "/redoc")
+    if request.url.path.startswith(skip_prefixes):
         return await call_next(request)
-
     if not settings.API_KEY:
         return await call_next(request)   # auth disabled
 
     key = request.headers.get("X-API-Key", "")
-    if key != settings.API_KEY:
+    if not secrets.compare_digest(key, settings.API_KEY):
         return JSONResponse(
             status_code=401,
             content={"error": "unauthorized — invalid X-API-Key"},

@@ -74,7 +74,7 @@ async def list_rules(
     """
     rules = await crud.get_rules(
         db,
-        active_only=(active is True),
+        active=active,
         source=source,
         action=action,
         limit=limit,
@@ -128,9 +128,8 @@ async def create_manual_rule(
             detail="rate_kbps is required for ratelimit action",
         )
 
-    idle = body.idle_timeout or settings.DEFAULT_IDLE_TIMEOUT
-    hard = body.hard_timeout or settings.DEFAULT_HARD_TIMEOUT
-
+    idle = body.idle_timeout if body.idle_timeout is not None else settings.DEFAULT_IDLE_TIMEOUT
+    hard = body.hard_timeout if body.hard_timeout is not None else settings.DEFAULT_HARD_TIMEOUT
     # ── Call Ryu ──────────────────────────────────────────────────────
     try:
         if body.action == "block":
@@ -162,7 +161,15 @@ async def create_manual_rule(
         )
 
     # ── Store in DB ───────────────────────────────────────────────────
-    rule_id = uuid.UUID(ryu_rule["rule_id"])
+    # ── Store in DB ───────────────────────────────────────────────────
+    try:
+        rule_id = uuid.UUID(ryu_rule["rule_id"])
+    except (KeyError, ValueError, TypeError) as e:
+        log.error("Ryu returned malformed response: %s", ryu_rule)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ryu returned invalid rule response: {e}",
+        )
     rule = await crud.insert_rule(db, {
         "rule_id":      rule_id,
         "src_ip":       body.src_ip,
@@ -173,8 +180,7 @@ async def create_manual_rule(
         "idle_timeout": idle,
         "hard_timeout": hard,
         "alert_id":     None,   # no triggering alert for manual rules
-    })
-
+    })   
     dedup.record_action(body.src_ip)
 
     log.info(

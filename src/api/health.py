@@ -70,10 +70,8 @@ async def list_alerts(
     offset:  int           = Query(0,    ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Return alert history ordered by received_at descending.
-    Used by dashboard alert history page.
-    """
+ 
+    total = await crud.count_alerts(db, verdict=verdict, src_ip=src_ip) 
     alerts = await crud.get_alerts(
         db,
         limit=limit,
@@ -82,6 +80,7 @@ async def list_alerts(
         src_ip=src_ip,
     )
     return {
+        "total":  total,
         "count":  len(alerts),
         "alerts": [_alert_to_dict(a) for a in alerts],
     }

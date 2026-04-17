@@ -110,7 +110,8 @@ async def receive_alert(
                 idle_timeout=settings.DEFAULT_IDLE_TIMEOUT,
                 hard_timeout=settings.DEFAULT_HARD_TIMEOUT,
             )
-
+        else:
+            log.warning("Unhandled action type: %s | alert_id=%d", action, alert_record.id)
     except RyuClientError as e:
         # Ryu is unreachable or returned an error.
         # The alert is already stored. Log and return partial success.
@@ -126,9 +127,16 @@ async def receive_alert(
             "warning":   f"OVS rule not installed: {e}",
         }
 
-    # ── 8. Store rule in DB ───────────────────────────────────────────
-    rule_id = uuid.UUID(ryu_rule["rule_id"]) if ryu_rule else None
-    dpid    = ryu_rule.get("dpid") if ryu_rule else None
+    rule_id = None
+    dpid = None
+    if ryu_rule:
+        raw_rule_id = ryu_rule.get("rule_id")
+        if not raw_rule_id:
+            log.error("Ryu response missing rule_id | alert_id=%d", alert_record.id)
+        else:
+            rule_id = uuid.UUID(raw_rule_id)
+        dpid = ryu_rule.get("dpid")   
+        dpid    = ryu_rule.get("dpid") if ryu_rule else None
 
     if rule_id:
         await crud.insert_rule(db, {

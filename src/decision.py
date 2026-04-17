@@ -56,8 +56,7 @@ LABEL_ACTION_MAP: dict[str, tuple[str, float]] = {
 
     # ── Compromised host → full isolation ─────────────────────────────
     "Bot":                      ("isolate",   0.0),
-    "Infilteration":            ("isolate",   0.0),
-
+    "Infiltration":             ("isolate",   0.0),
     # ── Brute force — confidence-gated ────────────────────────────────
     # High confidence → block outright.
     # Low confidence → ratelimit (buy time without false-positive risk).
@@ -72,9 +71,8 @@ LABEL_ACTION_MAP: dict[str, tuple[str, float]] = {
 def decide(alert: AlertData) -> str:
 
     label      = alert.label or ""
-    verdict    = alert.verdict.upper()
+    verdict    = (alert.verdict or "").upper()
     confidence = alert.confidence
-
     # ── BENIGN — should never arrive but guard anyway ─────────────────
     if verdict == "BENIGN":
         return "log_only"

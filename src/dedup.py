@@ -25,9 +25,8 @@ def is_duplicate(src_ip: str) -> bool:
         return True
 
     # Cooldown expired — remove stale entry
-    del _cache[src_ip]
+    _cache.pop(src_ip, None)
     return False
-
 
 def record_action(src_ip: str) -> None:
     """
