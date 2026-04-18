@@ -88,10 +88,11 @@ def normalize(payload: dict) -> AlertData:
 
     source = payload.get("source", "ml_engine").lower()
 
-    if source == "ml_engine":
-        return _normalize_ml(payload)
+    if source == "ae" or source == "rf":
+        return _normalize_ml(payload)  
     elif source == "ids":
         return _normalize_ids(payload)
+ 
     else:
         raise ValueError(f"Unknown alert source: '{source}'")
 
@@ -105,10 +106,11 @@ def _normalize_ml(p: dict) -> AlertData:
     label   = p.get("label", "Unknown")
 
     return AlertData(
-        source          = "ml_engine",
+        source          = "ml_engine ",
         verdict         = verdict,
         label           = label,
-        confidence      = float(p.get("confidence") or 0.0),        src_ip          = src_ip,
+        confidence      = float(p.get("confidence") or 0.0), 
+        src_ip          = src_ip,
         dst_ip          = p.get("dst_ip"),
         src_port        = p.get("src_port"),
         dst_port        = p.get("dst_port"),
@@ -117,7 +119,7 @@ def _normalize_ml(p: dict) -> AlertData:
         end_time_ms     = p.get("end_time_ms"),
         anomaly_score   = p.get("anomaly_score"),
         anomaly_flagged = bool(p.get("anomaly_flagged", False)),
-        ml_source       = p.get("source_model", p.get("ml_source")),
+        ml_source       = p.get("source", p.get("ml_source")),
     )
 
 
