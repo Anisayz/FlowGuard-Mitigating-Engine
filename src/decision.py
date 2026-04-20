@@ -74,12 +74,12 @@ def decide(alert: AlertData) -> str:
     verdict    = (alert.verdict or "").upper()
     confidence = alert.confidence
     # ── BENIGN — should never arrive but guard anyway ─────────────────
-    if verdict == "BENIGN":
+    if verdict == "BENIGN" :
         return "log_only"
 
     # ── SUSPECT — ML says possible attack but confidence too low ──────
 
-    if verdict == "SUSPECT":
+    if verdict == "SUSPECT" and label == "BENIGN" :
         return "log_only"
 
     # ── ANOMALY — AE flagged but RF didn't classify it ────────────────
