@@ -15,6 +15,26 @@ Action meanings:
   ratelimit → Meter rule to cap src_ip bandwidth (priority 150)
   isolate   → DROP both directions: src_ip and dst_ip (full isolation)
   log_only  → Store in DB, do NOT call Ryu (SUSPECT / low-confidence)
+
+
+
+    "Benign",
+    "Bot",
+    "Brute Force -Web",
+    "Brute Force -XSS",
+    "DDOS attack-HOIC",
+    "DDOS attack-LOIC-UDP",
+    "DDoS attacks-LOIC-HTTP",
+    "DoS attacks-GoldenEye",
+    "DoS attacks-Hulk",
+    "DoS attacks-SlowHTTPTest",
+    "DoS attacks-Slowloris",
+    "FTP-BruteForce",
+    "Infilteration",
+    "SQL Injection",
+    "SSH-Bruteforce"
+
+
 """
 
 from src.normalizer import AlertData
@@ -56,15 +76,13 @@ LABEL_ACTION_MAP: dict[str, tuple[str, float]] = {
 
     # ── Compromised host → full isolation ─────────────────────────────
     "Bot":                      ("isolate",   0.0),
-    "Infiltration":             ("isolate",   0.0),
+    "Infilteration":             ("isolate",   0.0),
     # ── Brute force — confidence-gated ────────────────────────────────
     # High confidence → block outright.
     # Low confidence → ratelimit (buy time without false-positive risk).
     "FTP-BruteForce":           ("block",     0.70),
     "SSH-Bruteforce":           ("block",     0.70),
-
-    # ── Port scan → ratelimit (scanning itself is not destructive) ────
-    "PortScan":                 ("ratelimit", 0.0),
+  
 }
 
 
