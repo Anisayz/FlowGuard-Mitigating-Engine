@@ -25,7 +25,7 @@ IDS alert payload example:
 
 ML engine alert payload example (from alert.py):
 {
-    "source":          "ml_engine",
+    "source":          "ae",           ← "ae" | "rf" | "rf+ae"
     "action":          "block",
     "verdict":         "ATTACK",
     "label":           "DDoS attacks-LOIC-HTTP",
@@ -88,7 +88,7 @@ def normalize(payload: dict) -> AlertData:
 
     source = payload.get("source", "ml_engine").lower()
 
-    if source == "ae" or source == "rf":
+    if source == "ae" or source == "rf" or source == "rf+ae": 
         return _normalize_ml(payload)  
     elif source == "ids":
         return _normalize_ids(payload)
