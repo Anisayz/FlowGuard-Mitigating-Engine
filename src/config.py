@@ -6,8 +6,8 @@ class Settings(BaseSettings):
 
     # ── FastAPI ───────────────────────────────────────────────────────
     APP_HOST: str =os.getenv("APP_HOST" , "0.0.0.0")
-    APP_PORT: int = os.getenv("APP_PORT", "9080")
-    API_KEY:  str = os.getenv("API_KEY","mitigatin-engine-2026")
+    APP_PORT: int = os.getenv("APP_PORT", "9000")
+    API_KEY:  str = os.getenv("API_KEY","mitigation-engine-2026")
    
     # ── PostgreSQL ────────────────────────────────────────────────────
 

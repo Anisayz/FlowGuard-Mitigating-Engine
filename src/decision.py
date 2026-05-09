@@ -16,25 +16,17 @@ Action meanings:
   isolate   → DROP both directions: src_ip and dst_ip (full isolation)
   log_only  → Store in DB, do NOT call Ryu (SUSPECT / low-confidence)
 
+RF labels (from CIC-IDS2018 training data):
+    Benign, Bot, Brute Force -Web, Brute Force -XSS,
+    DDOS attack-HOIC, DDOS attack-LOIC-UDP, DDoS attacks-LOIC-HTTP,
+    DoS attacks-GoldenEye, DoS attacks-Hulk, DoS attacks-SlowHTTPTest,
+    DoS attacks-Slowloris, FTP-BruteForce, Infilteration,
+    SQL Injection, SSH-Bruteforce
 
-
-    "Benign",
-    "Bot",
-    "Brute Force -Web",
-    "Brute Force -XSS",
-    "DDOS attack-HOIC",
-    "DDOS attack-LOIC-UDP",
-    "DDoS attacks-LOIC-HTTP",
-    "DoS attacks-GoldenEye",
-    "DoS attacks-Hulk",
-    "DoS attacks-SlowHTTPTest",
-    "DoS attacks-Slowloris",
-    "FTP-BruteForce",
-    "Infilteration",
-    "SQL Injection",
-    "SSH-Bruteforce"
-
-
+Heuristic / AE-inferred labels (from alert.py _resolve_attack_type):
+    SYN Flood, Port Scan, HTTP Scan, HTTPS Scan, SSH Scan,
+    FTP Scan, RDP Scan, SSH Brute Force, FTP Brute Force,
+    HTTP DoS, HTTPS DoS, Anomalous Flow
 """
 
 from src.normalizer import AlertData
@@ -42,86 +34,109 @@ from src.config import get_settings
 
 settings = get_settings()
 
-
-# ────────────────────────────────────────────────────────────────────────────
-#  Label → (action, min_confidence)
-#
-#  min_confidence = 0.0 means the action is applied regardless of confidence.
-#  min_confidence > 0.0 means: if confidence < threshold → downgrade to ratelimit.
-# ────────────────────────────────────────────────────────────────────────────
-
+ 
 LABEL_ACTION_MAP: dict[str, tuple[str, float]] = {
-    # ── High-volume DDoS → always block ──────────────────────────────
-    "DDoS attacks-LOIC-HTTP":   ("block",     0.0),
-    "DDoS attacks-LOIC-UDP":    ("block",     0.0),
-    "DDoS attacks-HOIC":        ("block",     0.0),
 
-    # ── DoS volume attacks → block ────────────────────────────────────
-    "DoS attacks-Hulk":         ("block",     0.0),
+   
+    "DDoS attacks-LOIC-HTTP"   : ("block",     0.0),
+    "DDoS attacks-LOIC-UDP"    : ("block",     0.0),
+    "DDOS attack-LOIC-UDP"     : ("block",     0.0),   # alternate capitalisation
+    "DDOS attack-HOIC"         : ("block",     0.0),
+    "DDoS attacks-HOIC"        : ("block",     0.0),   # alternate capitalisation
+    "DoS attacks-Hulk"         : ("block",     0.0),
+    "HTTP DoS"                 : ("block",     0.0),   # heuristic label
+    "HTTPS DoS"                : ("block",     0.0),   # heuristic label
 
-    # ── Slow DoS → ratelimit (cutting them off loses TCP state) ───────
-    "DoS attacks-SlowHTTPTest": ("ratelimit", 0.0),
-    "DoS attacks-Slowloris":    ("ratelimit", 0.0),
-    "DoS attacks-GoldenEye":    ("ratelimit", 0.0),
+   
+    "SYN Flood"                : ("block",     0.0),
 
-    # ── Web layer attacks → ratelimit ─────────────────────────────────
-    "Brute Force -Web":         ("ratelimit", 0.0),
-    "Brute Force -XSS":         ("ratelimit", 0.0),
+   
+    "DoS attacks-SlowHTTPTest" : ("ratelimit", 0.0),
+    "DoS attacks-Slowloris"    : ("ratelimit", 0.0),
+    "DoS attacks-GoldenEye"    : ("ratelimit", 0.0),
 
-    # ── Database exploit → block immediately ──────────────────────────
-    "SQL Injection":            ("block",     0.0),
+    
+    "Port Scan"                : ("isolate",   0.0),
+    "HTTP Scan"                : ("isolate",   0.0),
+    "HTTPS Scan"               : ("isolate",   0.0),
+    "SSH Scan"                 : ("isolate",   0.0),
+    "FTP Scan"                 : ("isolate",   0.0),
+    "RDP Scan"                 : ("isolate",   0.0),
 
-    # ── Protocol exploit → block ──────────────────────────────────────
-    "Heartbleed":               ("block",     0.0),
+   
+    "Brute Force -Web"         : ("ratelimit", 0.0),
+    "Brute Force -XSS"         : ("ratelimit", 0.0),
+
+   
+    "SQL Injection"            : ("block",     0.0),
+
+     
+    "Heartbleed"               : ("block",     0.0),
 
     # ── Compromised host → full isolation ─────────────────────────────
-    "Bot":                      ("isolate",   0.0),
-    "Infilteration":             ("isolate",   0.0),
+    "Bot"                      : ("isolate",   0.0),
+    "Infilteration"            : ("isolate",   0.0),
+
     # ── Brute force — confidence-gated ────────────────────────────────
     # High confidence → block outright.
-    # Low confidence → ratelimit (buy time without false-positive risk).
-    "FTP-BruteForce":           ("block",     0.70),
-    "SSH-Bruteforce":           ("block",     0.70),
-  
+    # Low confidence  → ratelimit (buy time without false-positive risk).
+    "FTP-BruteForce"           : ("block",     0.70),
+    "SSH-Bruteforce"           : ("block",     0.70),
+    "SSH Brute Force"          : ("block",     0.70),   # heuristic label
+    "FTP Brute Force"          : ("block",     0.70),   # heuristic label
+
+    # ── Anomalous Flow — AE flagged, RF uncertain ─────────────────────
+    # Unknown threat profile → cautious ratelimit, never block blindly.
+    "Anomalous Flow"           : ("ratelimit", 0.0),
 }
 
 
 def decide(alert: AlertData) -> str:
+    """
+    Map an alert to a mitigation action.
 
-    label      = alert.label or ""
+    Returns one of: "block", "ratelimit", "isolate", "log_only"
+    """
+    label      = (alert.label or "").strip()
     verdict    = (alert.verdict or "").upper()
     confidence = alert.confidence
+
     # ── BENIGN — should never arrive but guard anyway ─────────────────
-    if verdict == "BENIGN" :
+    if verdict == "BENIGN":
         return "log_only"
 
-    # ── SUSPECT — ML says possible attack but confidence too low ──────
+    # ── SUSPECT — low-confidence attack signal ────────────────────────
+    if verdict == "SUSPECT":
+        # If RF actually named an attack class, still look it up
+        if label and label != "Benign" and label in LABEL_ACTION_MAP:
+            pass   # fall through to label lookup below
+        else:
+            return "log_only"
 
-    if verdict == "SUSPECT" and label == "BENIGN" :
-        return "log_only"
-
-    # ── ANOMALY — AE flagged but RF didn't classify it ────────────────
-    # Unknown threat → cautious ratelimit (never block an unknown)
+    # ── ANOMALY — AE flagged, RF said Benign ─────────────────────────
+    # Use label if it was resolved to something meaningful by _resolve_attack_type,
+    # otherwise default to ratelimit (never block an unknown threat).
     if verdict == "ANOMALY":
-        return "ratelimit"
+        if label in LABEL_ACTION_MAP:
+            pass   # fall through to label lookup below
+        else:
+            return "ratelimit"
 
-    # ── ATTACK — look up the label in the map ─────────────────────────
+    # ── Label lookup ──────────────────────────────────────────────────
     if label in LABEL_ACTION_MAP:
         action, min_conf = LABEL_ACTION_MAP[label]
 
-        # Confidence gate: if threshold is set and not met → downgrade
-        threshold = min_conf or settings.BRUTE_FORCE_CONF_THRESHOLD \
+        # Confidence gate
+        threshold = (
+            min_conf or settings.BRUTE_FORCE_CONF_THRESHOLD
             if min_conf > 0.0 else 0.0
-
+        )
         if threshold > 0.0 and confidence < threshold:
-            # Not confident enough for the primary action — be conservative
             return "ratelimit"
 
         return action
 
     # ── ATTACK with unknown label ─────────────────────────────────────
-    # RF says it's an attack but we don't recognise the class.
-    # Ratelimit is the safe default — never block without knowing why.
     if verdict == "ATTACK":
         return "ratelimit"
 
@@ -130,23 +145,29 @@ def decide(alert: AlertData) -> str:
 
 
 def describe_decision(alert: AlertData, action: str) -> str:
+    """Return a human-readable explanation of why an action was chosen."""
 
     if action == "log_only":
         return (
-            f"No OVS action: verdict={alert.verdict} confidence={alert.confidence:.2f} "
-            f"label='{alert.label}'"
+            f"No OVS action: verdict={alert.verdict} "
+            f"confidence={alert.confidence:.2f} label='{alert.label}'"
         )
-    if alert.label in LABEL_ACTION_MAP:
-        base_action, threshold = LABEL_ACTION_MAP[alert.label]
+
+    label = (alert.label or "").strip()
+
+    if label in LABEL_ACTION_MAP:
+        base_action, threshold = LABEL_ACTION_MAP[label]
         if threshold > 0.0 and alert.confidence < threshold:
             return (
-                f"Downgraded {base_action}→ratelimit: confidence {alert.confidence:.2f} "
-                f"< threshold {threshold} for label '{alert.label}'"
+                f"Downgraded {base_action}→ratelimit: "
+                f"confidence {alert.confidence:.2f} < threshold {threshold} "
+                f"for label '{label}'"
             )
         return (
-            f"Label match: '{alert.label}' → {action} "
+            f"Label match: '{label}' → {action} "
             f"(confidence={alert.confidence:.2f})"
         )
+
     return (
-        f"Fallback: verdict={alert.verdict} label='{alert.label}' → {action}"
+        f"Fallback: verdict={alert.verdict} label='{label}' → {action}"
     )

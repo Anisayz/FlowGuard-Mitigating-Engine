@@ -88,16 +88,18 @@ app.add_middleware(
 # ── Auth middleware ───────────────────────────────────────────────────────────
 @app.middleware("http")
 async def check_api_key(request: Request, call_next):
-    """
-    Validate X-API-Key header on all requests except /health and /docs.
-    """
+    
+    log.info("the auth middleware is being called")
+    log.info(request)
     skip_prefixes = ("/health", "/docs", "/openapi.json", "/redoc")
     if request.url.path.startswith(skip_prefixes):
         return await call_next(request)
     if not settings.API_KEY:
         return await call_next(request)   # auth disabled
-
+    log.info(settings.API_KEY)
+    
     key = request.headers.get("X-API-Key", "")
+    log.info("ur key is : " + key)
     if not secrets.compare_digest(key, settings.API_KEY):
         return JSONResponse(
             status_code=401,

@@ -80,6 +80,7 @@ async def list_rules(
         limit=limit,
         offset=offset,
     )
+    log.info(len(rules))
     return {
         "count": len(rules),
         "rules": [_rule_to_dict(r) for r in rules],
