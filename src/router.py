@@ -21,26 +21,32 @@ async def receive_alert(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+
+    # ── 1. Parse body ─────────────────────────────────────────────────
     try:
         payload = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    # ── 2. Normalize ──────────────────────────────────────────────────
     try:
         alert_data = normalizer.normalize(payload)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     log.info(
-        "Alert received | source=%s | verdict=%s | label=%s | confidence=%.2f | src_ip=%s",
+        "Alert received | source=%s | verdict=%s | label=%s | "
+        "confidence=%.2f | src_ip=%s",
         alert_data.source, alert_data.verdict,
         alert_data.label, alert_data.confidence, alert_data.src_ip,
     )
 
+    # ── 3. Decide action ──────────────────────────────────────────────
     action = decision.decide(alert_data)
     reason = decision.describe_decision(alert_data, action)
     log.info("Decision | action=%s | reason: %s", action, reason)
 
+    # ── 4. Store alert in DB (always, even if log_only or duplicate) ──
     alert_record = await crud.insert_alert(db, {
         "source":          alert_data.source,
         "verdict":         alert_data.verdict,
@@ -59,6 +65,7 @@ async def receive_alert(
         "anomaly_flagged": alert_data.anomaly_flagged,
     })
 
+    # ── 5. Skip OVS action if log_only ────────────────────────────────
     if action == "log_only":
         log.info("log_only | alert_id=%d stored, no OVS action", alert_record.id)
         return {
@@ -68,6 +75,9 @@ async def receive_alert(
             "duplicate": False,
         }
 
+    # ── 6. Dedup check — atomic check + reservation in one call ───────
+    # Key: (src_ip, dst_ip, verdict) — dst_port excluded to match
+    # capture.py's _AlertDeduplicator and collapse port-scan floods.
     is_dup = await dedup.check_and_record(
         src_ip  = alert_data.src_ip,
         dst_ip  = alert_data.dst_ip or "",
@@ -75,8 +85,10 @@ async def receive_alert(
     )
     if is_dup:
         log.info(
-            "Duplicate suppressed | src_ip=%s dst_ip=%s verdict=%s | alert_id=%d stored",
-            alert_data.src_ip, alert_data.dst_ip, alert_data.verdict, alert_record.id,
+            "Duplicate suppressed | src_ip=%s dst_ip=%s verdict=%s "
+            "| alert_id=%d stored",
+            alert_data.src_ip, alert_data.dst_ip,
+            alert_data.verdict, alert_record.id,
         )
         return {
             "alert_id":  alert_record.id,
@@ -85,6 +97,7 @@ async def receive_alert(
             "duplicate": True,
         }
 
+    # ── 7. Call Ryu to install the OVS rule ───────────────────────────
     ryu_rule = None
     try:
         if action == "block":
@@ -109,6 +122,7 @@ async def receive_alert(
             log.warning("Unhandled action type: %s | alert_id=%d", action, alert_record.id)
 
     except RyuClientError as e:
+        # Release the dedup reservation so the next alert can retry
         dedup.clear(
             src_ip  = alert_data.src_ip,
             dst_ip  = alert_data.dst_ip or "",
@@ -126,6 +140,7 @@ async def receive_alert(
             "warning":   f"OVS rule not installed: {e}",
         }
 
+    # ── 8. Persist the installed rule ─────────────────────────────────
     rule_id = None
     dpid    = None
     if ryu_rule:
@@ -148,6 +163,7 @@ async def receive_alert(
             "hard_timeout": settings.DEFAULT_HARD_TIMEOUT,
             "alert_id":     alert_record.id,
         })
+
         await crud.link_alert_to_rule(db, alert_record.id, rule_id)
 
     log.info(
