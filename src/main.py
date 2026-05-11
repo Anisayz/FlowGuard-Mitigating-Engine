@@ -1,4 +1,23 @@
+"""
+main.py — FastAPI entrypoint for the Mitigation Engine.
+
+Start:
+    uvicorn src.main:app --host 0.0.0.0 --port 9000 --reload
+
+Swagger UI (auto-generated):
+    http://localhost:9000/docs
+
+What happens at startup (lifespan):
+  1. Create DB tables if they don't exist (dev convenience).
+     In production use: alembic upgrade head
+  2. Log config summary so you can see what's active at a glance.
+
+What happens at shutdown:
+  1. Close the Ryu HTTP client connection pool cleanly.
+"""
+
 import logging
+import secrets
 import sys
 from contextlib import asynccontextmanager
 
@@ -9,6 +28,10 @@ from fastapi.responses import JSONResponse
 
 from src.config import get_settings
 from src.db.database import create_tables
+from src.actions.ryu_client import close_client
+from src.api.alert import router as alert_router
+from src.api.rules import router as rules_router
+from src.api.health import health_router, alerts_router
 
 settings = get_settings()
 
@@ -31,10 +54,15 @@ async def lifespan(app: FastAPI):
     log.info("  Port     : %d", settings.APP_PORT)
     log.info("  Cooldown : %ds", settings.DEDUP_COOLDOWN_S)
 
+    # Create DB tables on startup (dev mode)
     await create_tables()
     log.info("Database tables ready")
 
     yield
+
+    # Shutdown
+    await close_client()
+    log.info("=== Mitigation Engine stopped ===")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -58,6 +86,26 @@ app.add_middleware(
 
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
+@app.middleware("http")
+async def check_api_key(request: Request, call_next):
+    
+    log.info("the auth middleware is being called")
+    log.info(request)
+    skip_prefixes = ("/health", "/docs", "/openapi.json", "/redoc")
+    if request.url.path.startswith(skip_prefixes):
+        return await call_next(request)
+    if not settings.API_KEY:
+        return await call_next(request)   # auth disabled
+    log.info(settings.API_KEY)
+    
+    key = request.headers.get("X-API-Key", "")
+    log.info("ur key is : " + key)
+    if not secrets.compare_digest(key, settings.API_KEY):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "unauthorized — invalid X-API-Key"},
+        )
+    return await call_next(request)
 
 
 # ── Global exception handler ──────────────────────────────────────────────────
@@ -69,6 +117,12 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"error": "internal server error", "detail": str(exc)},
     )
 
+
+# ── Routers ───────────────────────────────────────────────────────────────────
+app.include_router(alert_router)
+app.include_router(rules_router)
+app.include_router(health_router)
+app.include_router(alerts_router)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

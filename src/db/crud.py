@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import select, update, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import func
 from src.db.models import Alert, Rule
 
 
@@ -74,12 +74,19 @@ async def get_alert_by_id(db: AsyncSession, alert_id: int) -> Optional[Alert]:
     return result.scalar_one_or_none()
 
 
-async def count_alerts(db: AsyncSession) -> int:
-    from sqlalchemy import func
-    result = await db.execute(select(func.count()).select_from(Alert))
+# REPLACE count_alerts with:
+async def count_alerts(
+    db: AsyncSession,
+    verdict: Optional[str] = None,
+    src_ip: Optional[str] = None,
+) -> int:
+    query = select(func.count()).select_from(Alert)
+    if verdict:
+        query = query.where(Alert.verdict == verdict.upper())
+    if src_ip:
+        query = query.where(Alert.src_ip == src_ip)
+    result = await db.execute(query)
     return result.scalar_one()
-
-
 # ────────────────────────────────────────────────────────────────────────────
 #  Rules
 # ────────────────────────────────────────────────────────────────────────────
@@ -103,20 +110,19 @@ async def insert_rule(db: AsyncSession, data: dict) -> Rule:
     await db.flush()
     return rule
 
-
+# REPLACE get_rules signature + active_only logic with:
 async def get_rules(
     db: AsyncSession,
-    active_only: bool = False,
+    active: Optional[bool] = None,   # None=all, True=active, False=inactive
     source: Optional[str] = None,
     action: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
 ) -> list[Rule]:
-
     query = select(Rule).order_by(desc(Rule.created_at))
 
-    if active_only:
-        query = query.where(Rule.active == True)
+    if active is not None:
+        query = query.where(Rule.active == active)
     if source:
         query = query.where(Rule.source == source)
     if action:
@@ -125,8 +131,6 @@ async def get_rules(
     query = query.limit(limit).offset(offset)
     result = await db.execute(query)
     return list(result.scalars().all())
-
-
 async def get_rule_by_id(
     db: AsyncSession, rule_id: uuid.UUID
 ) -> Optional[Rule]:
@@ -163,7 +167,7 @@ async def deactivate_rule(
 
 
 async def count_active_rules(db: AsyncSession) -> int:
-    from sqlalchemy import func
+    
     result = await db.execute(
         select(func.count())
         .select_from(Rule)
